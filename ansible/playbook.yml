@@ -1,4 +1,4 @@
-- name: Configure EC2 with Nginx
+- name: Configure EC2 with Nginx (fully OS-aware)
   hosts: web
   become: yes
 
@@ -6,21 +6,80 @@
     - name: Wait for cloud-init to finish
       shell: cloud-init status --wait
       changed_when: false
+      failed_when: false
 
-    - name: Install nginx
-      package:
+    - name: Gather facts
+      setup:
+
+    # ----------------------------
+    # AMAZON LINUX 2
+    # ----------------------------
+    - name: Enable nginx on Amazon Linux 2
+      when: ansible_distribution == "Amazon" and ansible_distribution_major_version == "2"
+      shell: amazon-linux-extras enable nginx1
+      args:
+        warn: false
+
+    - name: Clean yum metadata (Amazon Linux 2)
+      when: ansible_distribution == "Amazon" and ansible_distribution_major_version == "2"
+      shell: yum clean metadata
+      args:
+        warn: false
+
+    - name: Install nginx (Amazon Linux 2)
+      when: ansible_distribution == "Amazon" and ansible_distribution_major_version == "2"
+      yum:
         name: nginx
         state: present
 
+    # ----------------------------
+    # AMAZON LINUX 2023
+    # ----------------------------
+    - name: Install nginx (Amazon Linux 2023)
+      when: ansible_distribution == "Amazon Linux"
+      dnf:
+        name: nginx
+        state: present
+
+    # ----------------------------
+    # UBUNTU / DEBIAN
+    # ----------------------------
+    - name: Install nginx (Ubuntu/Debian)
+      when: ansible_os_family == "Debian"
+      apt:
+        name: nginx
+        state: present
+        update_cache: yes
+
+    # ----------------------------
+    # START SERVICE (ALL OS)
+    # ----------------------------
     - name: Enable and start nginx
       service:
         name: nginx
         state: started
         enabled: yes
 
+    # ----------------------------
+    # SET WEB ROOT
+    # ----------------------------
+    - name: Set web root (Ubuntu)
+      set_fact:
+        web_root: /var/www/html
+      when: ansible_os_family == "Debian"
+
+    - name: Set web root (Amazon Linux / RHEL)
+      set_fact:
+        web_root: /usr/share/nginx/html
+      when: ansible_os_family == "RedHat" or ansible_distribution == "Amazon"
+
+    # ----------------------------
+    # DEPLOY PAGE
+    # ----------------------------
     - name: Deploy homepage
       copy:
-        dest: /usr/share/nginx/html/index.html
+        dest: "{{ web_root }}/index.html"
         content: |
           <h1>Terraform + Ansible Deployment Worked 🚀</h1>
-          <p>This EC2 instance was provisioned by Terraform and configured by Ansible.</p>
+          <p>OS: {{ ansible_distribution }} {{ ansible_distribution_version }}</p>
+          <p>Fully automated multi-OS nginx setup.</p>
